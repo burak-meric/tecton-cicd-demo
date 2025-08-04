@@ -1,0 +1,34 @@
+name: Tecton CICD
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  plan:
+    runs-on: ubuntu-latest
+    env:
+      TECTON_API_KEY: ${{ secrets.TECTON_API_KEY }}
+      API_SERVICE: ${{ vars.API_SERVICE }}
+      WORKSPACE: ${{ vars.WORKSPACE }}
+    steps:
+      - uses: actions/checkout@v3
+      - uses: actions/setup-python@v4
+        with:
+          python-version: "3.9"
+          cache: "pip"
+
+      - name: print variables
+        run: |
+          echo Running plan
+          echo "dev API_SERVICE variable => $API_SERVICE"
+          echo "dev WORKSPACE variable =>  $WORKSPACE"
+          echo "dev TECTON_API_KEY variable =>  $TECTON_API_KEY"
+
+      - name: Install Tecton CLI
+        run: pip install -r requirements.txt
+
+      - name: Select Tecton workspace
+        run: tecton workspace select $WORKSPACE
