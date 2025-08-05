@@ -10,6 +10,8 @@ from tecton import (
     FeatureService
 )
 
+from tecton.types import Field, Float64, String
+
 
 user = Entity(
     name='user_id',
