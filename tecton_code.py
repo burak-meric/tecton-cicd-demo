@@ -17,3 +17,10 @@ user = Entity(
     name='user_id',
     join_keys=[Field('user_id', String)],
 )
+
+account_entity = Entity(
+    name="account",
+    description="Enterprise Account id",
+    join_keys=[Field("account_id", String)],
+    prevent_destroy=False,
+)
