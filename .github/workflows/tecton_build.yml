@@ -1,4 +1,4 @@
-name: Tecton CICD
+name: Tecton Multi-Region CICD
 
 on:
   push:
@@ -7,79 +7,130 @@ on:
     branches: [main]
 
 jobs:
-  plan:
+  plan-reg1:
+    name: Plan (REG1)
     runs-on: ubuntu-latest
     outputs:
-      planid: ${{ steps.planid.outputs.planid }}
+      planid: ${{ steps.extract-planid.outputs.planid }}
     env:
-      TECTON_API_KEY: ${{ secrets.TECTON_API_KEY }}
-      API_SERVICE: ${{ vars.API_SERVICE }}
-      WORKSPACE: ${{ vars.WORKSPACE }}
+      TECTON_API_KEY: ${{ secrets.TECTON_API_KEY_REG1 }}
+      API_SERVICE: ${{ vars.API_SERVICE_REG1 }}
+      WORKSPACE: ${{ vars.WORKSPACE_REG1 }}
+
     steps:
       - uses: actions/checkout@v3
+
       - uses: actions/setup-python@v4
         with:
-          python-version: "3.9"
-          cache: "pip"
-
-      - name: print variables
-        run: |
-          echo Running plan
-          echo "dev API_SERVICE variable => $API_SERVICE"
-          echo "dev WORKSPACE variable =>  $WORKSPACE"
-          echo "dev TECTON_API_KEY variable =>  $TECTON_API_KEY"
+          python-version: '3.9'
+          cache: pip
 
       - name: Install Tecton CLI
         run: pip install -r requirements.txt
 
-      - name: Select Tecton workspace
+      - name: Select workspace
         run: tecton workspace select $WORKSPACE
 
       - name: Run Tecton plan
         run: tecton plan --json-out plan.json
 
-      - name: Extract plan output to get the planid
-        id: planid
+      - name: Extract plan ID
+        id: extract-planid
         run: |
           PLANID=$(jq -r .plan_id < plan.json)
           echo "planid=$PLANID"
           echo "planid=$PLANID" >> $GITHUB_OUTPUT
 
-  apply:
-    needs: [plan]
-    if:
-      github.event_name == 'push' && github.ref == 'refs/heads/main' &&
-      needs.plan.outputs.planid != ''
+  plan-reg2:
+    name: Plan (REG2)
     runs-on: ubuntu-latest
-    environment:
-      name: prod-apply
+    outputs:
+      planid: ${{ steps.extract-planid.outputs.planid }}
     env:
-      TECTON_API_KEY: ${{ secrets.TECTON_API_KEY }}
-      API_SERVICE: ${{ vars.API_SERVICE }}
-      WORKSPACE: ${{ vars.WORKSPACE }}
+      TECTON_API_KEY: ${{ secrets.TECTON_API_KEY_REG2 }}
+      API_SERVICE: ${{ vars.API_SERVICE_REG2 }}
+      WORKSPACE: ${{ vars.WORKSPACE_REG2 }}
+
     steps:
       - uses: actions/checkout@v3
 
       - uses: actions/setup-python@v4
         with:
-          python-version: "3.9"
-          cache: "pip"
+          python-version: '3.9'
+          cache: pip
 
-      - name: print variables
-        run: |
-          echo Running apply
-          echo "API_SERVICE variable => $API_SERVICE"
-          echo "WORKSPACE variable =>  $WORKSPACE"
-          echo "TECTON_API_KEY variable =>  $TECTON_API_KEY"
-
-      - name: Install dependencies (e.g Tecton CLI)
+      - name: Install Tecton CLI
         run: pip install -r requirements.txt
 
-      - name: Select Tecton workspace
+      - name: Select workspace
         run: tecton workspace select $WORKSPACE
 
-      - name: tecton apply planid
-        env:
-          PLANID: ${{needs.plan.outputs.planid}}
+      - name: Run Tecton plan
+        run: tecton plan --json-out plan.json
+
+      - name: Extract plan ID
+        id: extract-planid
+        run: |
+          PLANID=$(jq -r .plan_id < plan.json)
+          echo "planid=$PLANID"
+          echo "planid=$PLANID" >> $GITHUB_OUTPUT
+
+  apply-reg1:
+    name: Apply (REG1)
+    needs: plan-reg1
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment:
+      name: prod-apply-reg1
+    env:
+      TECTON_API_KEY: ${{ secrets.TECTON_API_KEY_REG1 }}
+      API_SERVICE: ${{ vars.API_SERVICE_REG1 }}
+      WORKSPACE: ${{ vars.WORKSPACE_REG1 }}
+      PLANID: ${{ needs.plan-reg1.outputs.planid }}
+
+    steps:
+      - uses: actions/checkout@v3
+
+      - uses: actions/setup-python@v4
+        with:
+          python-version: '3.9'
+          cache: pip
+
+      - name: Install Tecton CLI
+        run: pip install -r requirements.txt
+
+      - name: Select workspace
+        run: tecton workspace select $WORKSPACE
+
+      - name: Apply plan
         run: tecton apply -y --plan-id $PLANID
 
+  apply-reg2:
+    name: Apply (REG2)
+    needs: plan-reg2
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment:
+      name: prod-apply-reg2
+    env:
+      TECTON_API_KEY: ${{ secrets.TECTON_API_KEY_REG2 }}
+      API_SERVICE: ${{ vars.API_SERVICE_REG2 }}
+      WORKSPACE: ${{ vars.WORKSPACE_REG2 }}
+      PLANID: ${{ needs.plan-reg2.outputs.planid }}
+
+    steps:
+      - uses: actions/checkout@v3
+
+      - uses: actions/setup-python@v4
+        with:
+          python-version: '3.9'
+          cache: pip
+
+      - name: Install Tecton CLI
+        run: pip install -r requirements.txt
+
+      - name: Select workspace
+        run: tecton workspace select $WORKSPACE
+
+      - name: Apply plan
+        run: tecton apply -y --plan-id $PLANID
