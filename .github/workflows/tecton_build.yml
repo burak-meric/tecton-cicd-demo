@@ -132,5 +132,9 @@ jobs:
       - name: Select workspace
         run: tecton workspace select $WORKSPACE
 
+      #Force REG2 to fail
+      - name: Force fail REG2
+        run: echo "Intentionally failing REG2 deployment" && exit 1
+
       - name: Apply plan
         run: tecton apply -y --plan-id $PLANID
