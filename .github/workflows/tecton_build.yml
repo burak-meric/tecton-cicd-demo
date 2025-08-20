@@ -138,3 +138,20 @@ jobs:
 
       - name: Apply plan
         run: tecton apply -y --plan-id $PLANID
+
+post-check:
+  needs: [apply-reg1, apply-reg2, plan-reg1, plan-reg2]
+  if: ${{ always() }}
+  runs-on: ubuntu-latest
+  steps:
+    - name: Detect split success
+      id: split
+      run: |
+        echo "r1=${{ needs.apply-reg1.result }} r2=${{ needs.apply-reg2.result }}"
+        if [ "${{ needs.apply-reg1.result }}" = "success" ] && [ "${{ needs.apply-reg2.result }}" = "failure" ]; then
+          echo "split=reg1" >> $GITHUB_OUTPUT
+        elif [ "${{ needs.apply-reg1.result }}" = "failure" ] && [ "${{ needs.apply-reg2.result }}" = "success" ]; then
+          echo "split=reg2" >> $GITHUB_OUTPUT
+        else
+          echo "split=none" >> $GITHUB_OUTPUT
+        fi
