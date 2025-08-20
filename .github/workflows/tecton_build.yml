@@ -61,9 +61,24 @@ jobs:
           PLANID=$(jq -r .plan_id < plan.json)
           echo "planid=$PLANID" >> $GITHUB_OUTPUT
 
+  # ---- Gate: ensure BOTH plans succeeded before deploying ----
+  plans-ok:
+    name: Verify plans
+    needs: [plan-reg1, plan-reg2]
+    runs-on: ubuntu-latest
+    if: ${{ always() }}  # run to check results even if a plan failed
+    steps:
+      - name: Check plan results
+        run: |
+          echo "REG1=${{ needs['plan-reg1'].result }}  REG2=${{ needs['plan-reg2'].result }}"
+          if [ "${{ needs['plan-reg1'].result }}" != "success" ] || [ "${{ needs['plan-reg2'].result }}" != "success" ]; then
+            echo "One or both plans failed — blocking deployments."
+            exit 1
+          fi
+
   apply-reg1:
     name: Apply (REG1)
-    needs: plan-reg1
+    needs: [plans-ok, plan-reg1]     # gate + its own plan (for planid)
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     environment:
@@ -88,7 +103,7 @@ jobs:
 
   apply-reg2:
     name: Apply (REG2)
-    needs: plan-reg2
+    needs: [plans-ok, plan-reg2]     # gate + its own plan (for planid)
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     environment:
@@ -114,9 +129,9 @@ jobs:
       - name: Apply plan
         run: tecton apply -y --plan-id $PLANID
 
-  post-check: 
+  post-check:
     needs: [apply-reg1, apply-reg2, plan-reg1, plan-reg2]
-    if: ${{ always() }}   # run even if a prior job failed
+    if: ${{ always() }}
     runs-on: ubuntu-latest
     steps:
       - name: Detect split success
@@ -130,13 +145,3 @@ jobs:
           else
             echo "split=none" >> $GITHUB_OUTPUT
           fi
-
-      # example follow-up actions (optional):
-      - name: Do something in REG1 if REG2 failed
-        if: steps.split.outputs.split == 'reg1'
-        run: echo "REG1 succeeded while REG2 failed — add recovery action here"
-
-      - name: Do something in REG2 if REG1 failed
-        if: steps.split.outputs.split == 'reg2'
-        run: echo "REG2 succeeded while REG1 failed — add recovery action here"
-
