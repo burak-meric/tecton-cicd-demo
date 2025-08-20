@@ -7,6 +7,7 @@ on:
     branches: [main]
 
 jobs:
+  # ---------- PLAN JOBS (one per region) ----------
   plan-reg1:
     name: Plan (REG1)
     runs-on: ubuntu-latest
@@ -25,14 +26,14 @@ jobs:
       - name: Install Tecton CLI
         run: pip install -r requirements.txt
       - name: Select workspace
-        run: tecton workspace select $WORKSPACE
+        run: tecton workspace select "$WORKSPACE"
       - name: Run Tecton plan
         run: tecton plan --json-out plan.json
       - name: Extract plan ID
         id: extract-planid
         run: |
           PLANID=$(jq -r .plan_id < plan.json)
-          echo "planid=$PLANID" >> $GITHUB_OUTPUT
+          echo "planid=$PLANID" >> "$GITHUB_OUTPUT"
 
   plan-reg2:
     name: Plan (REG2)
@@ -52,34 +53,40 @@ jobs:
       - name: Install Tecton CLI
         run: pip install -r requirements.txt
       - name: Select workspace
-        run: tecton workspace select $WORKSPACE
+        run: tecton workspace select "$WORKSPACE"
       - name: Run Tecton plan
         run: tecton plan --json-out plan.json
       - name: Extract plan ID
         id: extract-planid
         run: |
           PLANID=$(jq -r .plan_id < plan.json)
-          echo "planid=$PLANID" >> $GITHUB_OUTPUT
+          echo "planid=$PLANID" >> "$GITHUB_OUTPUT"
 
-  # ---- Gate: ensure BOTH plans succeeded before deploying ----
-  plans-ok:
+  # ---------- GATE: BOTH PLANS MUST SUCCEED ----------
+  verify-plans:
     name: Verify plans
-    needs: [plan-reg1, plan-reg2]
     runs-on: ubuntu-latest
-    if: ${{ always() }}  # run to check results even if a plan failed
+    needs: [plan-reg1, plan-reg2]
+    outputs:
+      planid_reg1: ${{ needs.plan-reg1.outputs.planid }}
+      planid_reg2: ${{ needs.plan-reg2.outputs.planid }}
     steps:
-      - name: Check plan results
+      - name: Ensure both plans succeeded
         run: |
-          echo "REG1=${{ needs['plan-reg1'].result }}  REG2=${{ needs['plan-reg2'].result }}"
-          if [ "${{ needs['plan-reg1'].result }}" != "success" ] || [ "${{ needs['plan-reg2'].result }}" != "success" ]; then
-            echo "One or both plans failed — blocking deployments."
+          echo "REG1 plan result: ${{ needs.plan-reg1.result }}"
+          echo "REG2 plan result: ${{ needs.plan-reg2.result }}"
+          if [ "${{ needs.plan-reg1.result }}" != "success" ] || \
+             [ "${{ needs.plan-reg2.result }}" != "success" ]; then
+            echo "One or both plans failed; blocking apply."
             exit 1
           fi
+          echo "Both plans succeeded."
 
+  # ---------- APPLY JOBS (fan-out from verify-plans) ----------
   apply-reg1:
     name: Apply (REG1)
-    needs: [plans-ok, plan-reg1]     # gate + its own plan (for planid)
-    if: github.ref == 'refs/heads/main'
+    needs: verify-plans
+    if: github.ref == 'refs/heads/main' # only apply on push to main
     runs-on: ubuntu-latest
     environment:
       name: prod-apply-reg1
@@ -87,7 +94,7 @@ jobs:
       TECTON_API_KEY: ${{ secrets.TECTON_API_KEY_REG1 }}
       API_SERVICE: ${{ vars.API_SERVICE_REG1 }}
       WORKSPACE: ${{ vars.WORKSPACE_REG1 }}
-      PLANID: ${{ needs.plan-reg1.outputs.planid }}
+      PLANID: ${{ needs.verify-plans.outputs.planid_reg1 }}
     steps:
       - uses: actions/checkout@v3
       - uses: actions/setup-python@v4
@@ -97,14 +104,14 @@ jobs:
       - name: Install Tecton CLI
         run: pip install -r requirements.txt
       - name: Select workspace
-        run: tecton workspace select $WORKSPACE
+        run: tecton workspace select "$WORKSPACE"
       - name: Apply plan
-        run: tecton apply -y --plan-id $PLANID
+        run: tecton apply -y --plan-id "$PLANID"
 
   apply-reg2:
     name: Apply (REG2)
-    needs: [plans-ok, plan-reg2]     # gate + its own plan (for planid)
-    if: github.ref == 'refs/heads/main'
+    needs: verify-plans
+    if: github.ref == 'refs/heads/main' # only apply on push to main
     runs-on: ubuntu-latest
     environment:
       name: prod-apply-reg2
@@ -112,7 +119,7 @@ jobs:
       TECTON_API_KEY: ${{ secrets.TECTON_API_KEY_REG2 }}
       API_SERVICE: ${{ vars.API_SERVICE_REG2 }}
       WORKSPACE: ${{ vars.WORKSPACE_REG2 }}
-      PLANID: ${{ needs.plan-reg2.outputs.planid }}
+      PLANID: ${{ needs.verify-plans.outputs.planid_reg2 }}
     steps:
       - uses: actions/checkout@v3
       - uses: actions/setup-python@v4
@@ -122,26 +129,41 @@ jobs:
       - name: Install Tecton CLI
         run: pip install -r requirements.txt
       - name: Select workspace
-        run: tecton workspace select $WORKSPACE
-      # Force REG2 to fail (for testing)
-      - name: Force fail REG2
-        run: echo "Intentionally failing REG2 deployment" && exit 1
+        run: tecton workspace select "$WORKSPACE"
       - name: Apply plan
-        run: tecton apply -y --plan-id $PLANID
+        run: tecton apply -y --plan-id "$PLANID"
 
+  # ---------- POST CHECK / SPLIT-HANDLING ----------
   post-check:
-    needs: [apply-reg1, apply-reg2, plan-reg1, plan-reg2]
-    if: ${{ always() }}
+    name: Post-check (detect split success/failure)
+    needs: [verify-plans, apply-reg1, apply-reg2]
+    if: ${{ always() }}  # always run to evaluate results
     runs-on: ubuntu-latest
     steps:
-      - name: Detect split success
-        id: split
+      - name: Summarize results
         run: |
-          echo "r1=${{ needs.apply-reg1.result }} r2=${{ needs.apply-reg2.result }}"
-          if [ "${{ needs.apply-reg1.result }}" = "success" ] && [ "${{ needs.apply-reg2.result }}" = "failure" ]; then
-            echo "split=reg1" >> $GITHUB_OUTPUT
-          elif [ "${{ needs.apply-reg1.result }}" = "failure" ] && [ "${{ needs.apply-reg2.result }}" = "success" ]; then
-            echo "split=reg2" >> $GITHUB_OUTPUT
-          else
-            echo "split=none" >> $GITHUB_OUTPUT
-          fi
+          echo "apply-reg1: ${{ needs.apply-reg1.result }}"
+          echo "apply-reg2: ${{ needs.apply-reg2.result }}"
+
+      - name: Handle split success (REG1 success, REG2 failure)
+        if: ${{ needs.apply-reg1.result == 'success' && needs.apply-reg2.result == 'failure' }}
+        run: |
+          echo "REG1 succeeded while REG2 failed. Add your remediation here."
+          # Example placeholder:
+          # tecton workspace select "${{ vars.WORKSPACE_REG1 }}"
+          # tecton <some-command>  # e.g., pause materialization, mark status, notify, etc.
+
+      - name: Handle split success (REG2 success, REG1 failure)
+        if: ${{ needs.apply-reg2.result == 'success' && needs.apply-reg1.result == 'failure' }}
+        run: |
+          echo "REG2 succeeded while REG1 failed. Add your remediation here."
+          # Example placeholder:
+          # tecton workspace select "${{ vars.WORKSPACE_REG2 }}"
+          # tecton <some-command>
+
+      - name: No split (both success or both failed)
+        if: ${{ !(
+              (needs.apply-reg1.result == 'success' && needs.apply-reg2.result == 'failure') ||
+              (needs.apply-reg2.result == 'success' && needs.apply-reg1.result == 'failure')
+            ) }}
+        run: echo "No split condition detected."
