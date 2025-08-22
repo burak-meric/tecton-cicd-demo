@@ -130,6 +130,12 @@ jobs:
         run: pip install -r requirements.txt
       - name: Select workspace
         run: tecton workspace select "$WORKSPACE"
+      # ---- Failure new gate for REG2 (toggle via repo/env variable) ----
+      - name: Force REG2 to fail (demo)
+        if: ${{ vars.FORCE_FAIL_REG2 == 'true' }}
+        run: |
+          echo "Intentionally failing REG2 deployment because FORCE_FAIL_REG2=true"
+          exit 1
       - name: Apply plan
         run: tecton apply -y --plan-id "$PLANID"
 
