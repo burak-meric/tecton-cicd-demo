@@ -131,7 +131,7 @@ jobs:
       - name: Select workspace
         run: tecton workspace select "$WORKSPACE"
 
-      # ---- Failure gate for REG2 (toggle via repo/env variable) ----
+      # ---- Failure new gate for REG2 (toggle via repo/env variable) ----
       - name: Force REG2 to fail (demo)
         if: ${{ vars.FORCE_FAIL_REG2 == 'true' }}
         run: |
