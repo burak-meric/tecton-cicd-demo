@@ -130,6 +130,14 @@ jobs:
         run: pip install -r requirements.txt
       - name: Select workspace
         run: tecton workspace select "$WORKSPACE"
+
+      # ---- Failure gate for REG2 (toggle via repo/env variable) ----
+      - name: Force REG2 to fail (demo)
+        if: ${{ vars.FORCE_FAIL_REG2 == 'true' }}
+        run: |
+          echo "Intentionally failing REG2 deployment because FORCE_FAIL_REG2=true"
+          exit 1
+
       - name: Apply plan
         run: tecton apply -y --plan-id "$PLANID"
 
@@ -148,16 +156,14 @@ jobs:
       - name: Handle split success (REG1 success, REG2 failure)
         if: ${{ needs.apply-reg1.result == 'success' && needs.apply-reg2.result == 'failure' }}
         run: |
-          echo "REG1 succeeded while REG2 failed. Add your remediation here."
-          # Example placeholder:
+          echo "REG1 succeeded while REG2 failed. Add remediation here."
           # tecton workspace select "${{ vars.WORKSPACE_REG1 }}"
-          # tecton <some-command>  # e.g., pause materialization, mark status, notify, etc.
+          # tecton <some-command>
 
       - name: Handle split success (REG2 success, REG1 failure)
         if: ${{ needs.apply-reg2.result == 'success' && needs.apply-reg1.result == 'failure' }}
         run: |
-          echo "REG2 succeeded while REG1 failed. Add your remediation here."
-          # Example placeholder:
+          echo "REG2 succeeded while REG1 failed. Add remediation here."
           # tecton workspace select "${{ vars.WORKSPACE_REG2 }}"
           # tecton <some-command>
 
