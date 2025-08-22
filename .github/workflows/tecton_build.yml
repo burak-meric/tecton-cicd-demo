@@ -73,11 +73,11 @@ jobs:
     steps:
       - name: Ensure both plans succeeded
         run: |
-          echo "REG1 plan result: ${{ needs.plan-reg1.result }}"
-          echo "REG2 plan result: ${{ needs.plan-reg2.result }}"
+          echo "REG1 plan: ${{ needs.plan-reg1.result }}"
+          echo "REG2 plan: ${{ needs.plan-reg2.result }}"
           if [ "${{ needs.plan-reg1.result }}" != "success" ] || \
              [ "${{ needs.plan-reg2.result }}" != "success" ]; then
-            echo "One or both plans failed; blocking apply."
+            echo "::error::One or both plans failed; blocking apply."
             exit 1
           fi
           echo "Both plans succeeded."
@@ -130,20 +130,12 @@ jobs:
         run: pip install -r requirements.txt
       - name: Select workspace
         run: tecton workspace select "$WORKSPACE"
-
-      # ---- Failure gate for REG2 (toggle via repo/env variable) ----
-      - name: Force REG2 to fail (demo)
-        if: ${{ vars.FORCE_FAIL_REG2 == 'true' }}
-        run: |
-          echo "Intentionally failing REG2 deployment because FORCE_FAIL_REG2=true"
-          exit 1
-
       - name: Apply plan
         run: tecton apply -y --plan-id "$PLANID"
 
   # ---------- POST CHECK / SPLIT-HANDLING ----------
   post-check:
-    name: Post-check (detect split success/failure)
+    name: Post-check (detect split; fail only on split)
     needs: [verify-plans, apply-reg1, apply-reg2]
     if: ${{ always() }}  # always run to evaluate results
     runs-on: ubuntu-latest
@@ -153,21 +145,26 @@ jobs:
           echo "apply-reg1: ${{ needs.apply-reg1.result }}"
           echo "apply-reg2: ${{ needs.apply-reg2.result }}"
 
-      - name: Handle split success (REG1 success, REG2 failure)
+      # Fail ONLY when there is a split (one success, one failure)
+      - name: Split detected (REG1 success, REG2 failure) — fail job
         if: ${{ needs.apply-reg1.result == 'success' && needs.apply-reg2.result == 'failure' }}
         run: |
-          echo "REG1 succeeded while REG2 failed. Add remediation here."
+          echo "::error::Split detected: REG1 succeeded, REG2 failed."
+          # Optional: add remediation for REG1 here
           # tecton workspace select "${{ vars.WORKSPACE_REG1 }}"
           # tecton <some-command>
+          exit 1
 
-      - name: Handle split success (REG2 success, REG1 failure)
+      - name: Split detected (REG2 success, REG1 failure) — fail job
         if: ${{ needs.apply-reg2.result == 'success' && needs.apply-reg1.result == 'failure' }}
         run: |
-          echo "REG2 succeeded while REG1 failed. Add remediation here."
+          echo "::error::Split detected: REG2 succeeded, REG1 failed."
+          # Optional: add remediation for REG2 here
           # tecton workspace select "${{ vars.WORKSPACE_REG2 }}"
           # tecton <some-command>
+          exit 1
 
-      - name: No split (both success or both failed)
+      - name: No split (both success or both failed) — keep green
         if: ${{ !(
               (needs.apply-reg1.result == 'success' && needs.apply-reg2.result == 'failure') ||
               (needs.apply-reg2.result == 'success' && needs.apply-reg1.result == 'failure')
