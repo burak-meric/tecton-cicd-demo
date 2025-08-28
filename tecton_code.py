@@ -14,7 +14,7 @@ from tecton.types import Field, Float64, String
 
 
 user = Entity(
-    name='user123456',
+    name='user1234567',
     join_keys=[Field('user_id', String)],
 )
 
